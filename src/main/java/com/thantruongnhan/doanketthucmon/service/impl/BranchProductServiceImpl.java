@@ -43,7 +43,7 @@ public class BranchProductServiceImpl implements BranchProductService {
     @Transactional(readOnly = true)
     public List<ProductWithPromotionDTO> getProductsWithPromotionByBranch(Long branchId) {
         List<Product> allProducts = productRepository.findAll();
-        System.out.println("Tổng products: " + allProducts.size());
+        System.out.println("📦 Tổng products: " + allProducts.size());
 
         if (allProducts.isEmpty()) {
             System.out.println("KHÔNG CÓ PRODUCTS!");
@@ -62,6 +62,14 @@ public class BranchProductServiceImpl implements BranchProductService {
                         (existing, replacement) -> existing));
 
         LocalDate today = LocalDate.now();
+
+        List<Promotion> allActivePromotions = promotionRepository.findAll().stream()
+                .filter(p -> Boolean.TRUE.equals(p.getIsActive()))
+                .filter(p -> p.getStartDate() == null || !p.getStartDate().isAfter(today))
+                .filter(p -> p.getEndDate() == null || !p.getEndDate().isBefore(today))
+                .toList();
+
+        System.out.println("Active promotions: " + allActivePromotions.size());
 
         // Build DTO
         return allProducts.stream()
@@ -103,22 +111,40 @@ public class BranchProductServiceImpl implements BranchProductService {
                             .branchId(branchId)
                             .build();
 
-                    // Khuyến mãi (chỉ cho sản phẩm đã phân phối)
+                    // Check promotion (chỉ cho sản phẩm đã phân phối)
                     if (bp != null) {
-                        List<Promotion> activePromotions = promotionRepository.findAll().stream()
-                                .filter(p -> Boolean.TRUE.equals(p.getIsActive()))
-                                .filter(p -> p.getStartDate() == null || !p.getStartDate().isAfter(today))
-                                .filter(p -> p.getEndDate() == null || !p.getEndDate().isBefore(today))
-                                .filter(p -> p.getProducts() != null &&
-                                        p.getProducts().stream()
-                                                .anyMatch(prod -> prod.getId().equals(product.getId())))
-                                .filter(p -> p.getBranches() != null &&
-                                        p.getBranches().stream()
-                                                .anyMatch(b -> b.getId().equals(branchId)))
+                        final Long productId = product.getId();
+
+                        List<Promotion> applicablePromotions = allActivePromotions.stream()
+                                .filter(p -> {
+                                    // Check if product is in promotion
+                                    boolean hasProduct = p.getProducts() != null &&
+                                            p.getProducts().stream()
+                                                    .anyMatch(prod -> prod.getId().equals(productId));
+
+                                    if (!hasProduct) {
+                                        return false;
+                                    }
+
+                                    // Check if branch is in promotion
+                                    boolean hasBranch = p.getBranches() != null &&
+                                            p.getBranches().stream()
+                                                    .anyMatch(b -> b.getId().equals(branchId));
+
+                                    System.out.println(String.format(
+                                            "🔍 Promotion '%s' | Product: %s | Branch: %s",
+                                            p.getName(), hasProduct, hasBranch));
+
+                                    return hasBranch;
+                                })
                                 .toList();
 
-                        if (!activePromotions.isEmpty()) {
-                            Promotion bestPromotion = findBestPromotion(activePromotions, branchPrice);
+                        System.out.println(String.format(
+                                "📊 Product '%s' có %d promotions áp dụng được",
+                                product.getName(), applicablePromotions.size()));
+
+                        if (!applicablePromotions.isEmpty()) {
+                            Promotion bestPromotion = findBestPromotion(applicablePromotions, branchPrice);
 
                             dto.setHasPromotion(true);
                             dto.setPromotionId(bestPromotion.getId());
@@ -126,6 +152,11 @@ public class BranchProductServiceImpl implements BranchProductService {
                             dto.setDiscountPercentage(bestPromotion.getDiscountPercentage());
                             dto.setDiscountAmount(bestPromotion.getDiscountAmount());
                             dto.setFinalPrice(calculateFinalPrice(branchPrice, bestPromotion));
+
+                            System.out.println(String.format(
+                                    "Applied promotion '%s' to '%s': %s -> %s",
+                                    bestPromotion.getName(), product.getName(),
+                                    branchPrice, dto.getFinalPrice()));
                         }
                     }
 
