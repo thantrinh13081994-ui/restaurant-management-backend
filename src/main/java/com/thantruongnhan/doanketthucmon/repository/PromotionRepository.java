@@ -27,8 +27,7 @@ public interface PromotionRepository extends JpaRepository<Promotion, Long> {
 
     @Query("SELECT DISTINCT p FROM Promotion p " +
             "LEFT JOIN FETCH p.products " +
-            "LEFT JOIN FETCH p.branches " +
-            "WHERE p.isActive = true")
-    List<Promotion> findAllActiveWithRelations();
+            "LEFT JOIN FETCH p.branches")
+    List<Promotion> findAllWithRelations();
 
 }

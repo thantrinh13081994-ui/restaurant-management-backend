@@ -42,6 +42,10 @@ public class BranchProductServiceImpl implements BranchProductService {
     @Override
     @Transactional(readOnly = true)
     public List<ProductWithPromotionDTO> getProductsWithPromotionByBranch(Long branchId) {
+        System.out.println("\n========================================");
+        System.out.println("🔍 FETCHING PRODUCTS FOR BRANCH ID: " + branchId);
+        System.out.println("========================================\n");
+
         List<Product> allProducts = productRepository.findAll();
         System.out.println("📦 Tổng products: " + allProducts.size());
 
@@ -62,14 +66,56 @@ public class BranchProductServiceImpl implements BranchProductService {
                         (existing, replacement) -> existing));
 
         LocalDate today = LocalDate.now();
+        System.out.println("📅 Today: " + today);
 
-        List<Promotion> allActivePromotions = promotionRepository.findAll().stream()
-                .filter(p -> Boolean.TRUE.equals(p.getIsActive()))
-                .filter(p -> p.getStartDate() == null || !p.getStartDate().isAfter(today))
-                .filter(p -> p.getEndDate() == null || !p.getEndDate().isBefore(today))
+        List<Promotion> allPromotions = promotionRepository.findAllWithRelations();
+        System.out.println("\n🎁 TOTAL PROMOTIONS IN DB: " + allPromotions.size());
+
+        // Debug từng promotion
+        for (Promotion p : allPromotions) {
+            System.out.println("\n📋 Promotion ID: " + p.getId());
+            System.out.println("   Name: " + p.getName());
+            System.out.println("   IsActive: " + p.getIsActive());
+            System.out.println("   StartDate: " + p.getStartDate());
+            System.out.println("   EndDate: " + p.getEndDate());
+
+            // Check products
+            if (p.getProducts() != null) {
+                System.out.println("   Products: " + p.getProducts().size() + " items");
+                p.getProducts().forEach(prod -> System.out
+                        .println("      - Product ID: " + prod.getId() + ", Name: " + prod.getName()));
+            } else {
+                System.out.println("   Products: NULL");
+            }
+
+            // Check branches
+            if (p.getBranches() != null) {
+                System.out.println("   Branches: " + p.getBranches().size() + " items");
+                p.getBranches().forEach(branch -> System.out
+                        .println("      - Branch ID: " + branch.getId() + ", Name: " + branch.getName()));
+            } else {
+                System.out.println("   Branches: NULL");
+            }
+        }
+
+        // Filter active promotions
+        List<Promotion> activePromotions = allPromotions.stream()
+                .filter(p -> {
+                    boolean isActive = Boolean.TRUE.equals(p.getIsActive());
+                    boolean startOk = p.getStartDate() == null || !p.getStartDate().isAfter(today);
+                    boolean endOk = p.getEndDate() == null || !p.getEndDate().isBefore(today);
+
+                    System.out.println("\n🔍 Checking promotion: " + p.getName());
+                    System.out.println("   isActive: " + isActive);
+                    System.out.println("   startOk: " + startOk + " (startDate: " + p.getStartDate() + ")");
+                    System.out.println("   endOk: " + endOk + " (endDate: " + p.getEndDate() + ")");
+                    System.out.println("   RESULT: " + (isActive && startOk && endOk));
+
+                    return isActive && startOk && endOk;
+                })
                 .toList();
 
-        System.out.println("Active promotions: " + allActivePromotions.size());
+        System.out.println("\nActive promotions: " + activePromotions.size());
 
         // Build DTO
         return allProducts.stream()
@@ -115,33 +161,31 @@ public class BranchProductServiceImpl implements BranchProductService {
                     if (bp != null) {
                         final Long productId = product.getId();
 
-                        List<Promotion> applicablePromotions = allActivePromotions.stream()
+                        System.out.println("\n🔍 Checking promotions for product: " + product.getName() + " (ID: "
+                                + productId + ")");
+
+                        List<Promotion> applicablePromotions = activePromotions.stream()
                                 .filter(p -> {
                                     // Check if product is in promotion
                                     boolean hasProduct = p.getProducts() != null &&
                                             p.getProducts().stream()
                                                     .anyMatch(prod -> prod.getId().equals(productId));
 
-                                    if (!hasProduct) {
-                                        return false;
-                                    }
-
                                     // Check if branch is in promotion
                                     boolean hasBranch = p.getBranches() != null &&
                                             p.getBranches().stream()
                                                     .anyMatch(b -> b.getId().equals(branchId));
 
-                                    System.out.println(String.format(
-                                            "🔍 Promotion '%s' | Product: %s | Branch: %s",
-                                            p.getName(), hasProduct, hasBranch));
+                                    System.out.println("   🎁 Promotion: " + p.getName());
+                                    System.out.println("      hasProduct: " + hasProduct);
+                                    System.out.println("      hasBranch: " + hasBranch);
+                                    System.out.println("      APPLICABLE: " + (hasProduct && hasBranch));
 
-                                    return hasBranch;
+                                    return hasProduct && hasBranch;
                                 })
                                 .toList();
 
-                        System.out.println(String.format(
-                                "📊 Product '%s' có %d promotions áp dụng được",
-                                product.getName(), applicablePromotions.size()));
+                        System.out.println(" Applicable promotions: " + applicablePromotions.size());
 
                         if (!applicablePromotions.isEmpty()) {
                             Promotion bestPromotion = findBestPromotion(applicablePromotions, branchPrice);
@@ -153,10 +197,9 @@ public class BranchProductServiceImpl implements BranchProductService {
                             dto.setDiscountAmount(bestPromotion.getDiscountAmount());
                             dto.setFinalPrice(calculateFinalPrice(branchPrice, bestPromotion));
 
-                            System.out.println(String.format(
-                                    "Applied promotion '%s' to '%s': %s -> %s",
-                                    bestPromotion.getName(), product.getName(),
-                                    branchPrice, dto.getFinalPrice()));
+                            System.out.println("   🎉 APPLIED PROMOTION: " + bestPromotion.getName());
+                            System.out.println("      Original: " + branchPrice);
+                            System.out.println("      Final: " + dto.getFinalPrice());
                         }
                     }
 
